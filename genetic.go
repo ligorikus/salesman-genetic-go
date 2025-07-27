@@ -9,7 +9,7 @@ import (
 )
 
 type Population struct {
-	mutex  *sync.Mutex
+	mutex  *sync.RWMutex
 	graph  Graph
 	chains map[int]Chain
 }
@@ -27,7 +27,7 @@ type ChainWeight struct {
 func NewPopulation(graph Graph, countOfChains int) Population {
 	var population Population
 	population.graph = graph
-	population.mutex = &sync.Mutex{}
+	population.mutex = &sync.RWMutex{}
 
 	population.chains = make(map[int]Chain)
 	for index := range countOfChains {
@@ -74,15 +74,17 @@ func (population *Population) evolution(ctx context.Context, config *EvolutionCo
 			if !ok {
 				break
 			}
+			population.mutex.RLock()
 			sortedWeights := population.sortWeights(chainWeights)
+			population.mutex.RUnlock()
 			best := sortedWeights[0]
 			fmt.Println("iteration: ", i, " Best distance - ", best.weight)
 		case <-ctx.Done():
 			doneCtx := context.Background()
-			population.mutex.Lock()
+			population.mutex.RLock()
 			best := population.sortWeights(<-population.calculateChainWeights(doneCtx))[0]
-			population.mutex.Unlock()
 			fmt.Println("Finally: Best distance - ", best.weight, "; Chain -", population.chains[best.index])
+			population.mutex.RUnlock()
 			return
 		}
 		i++
@@ -109,10 +111,10 @@ func (population *Population) crossbreed(ctx context.Context, chains []Chain) <-
 			chain := chain
 			go func() {
 				defer wg.Done()
-				population.mutex.Lock()
+				population.mutex.RLock()
 				index := rand.IntN(len(population.chains) - 1)
 				parent := population.chains[index]
-				population.mutex.Unlock()
+				population.mutex.RUnlock()
 				crossbreedRangeMin, crossbreedRangeMax := randomRange(len(chain))
 				select {
 				case ch <- chain.crossbreeding(parent, crossbreedRangeMin, crossbreedRangeMax):
@@ -183,7 +185,9 @@ func (population *Population) calculateChainWeights(ctx context.Context) <-chan 
 		defer close(outputCh)
 
 		ch := make(chan ChainWeight)
+		population.mutex.RLock()
 		go population.countChainsWeight(ctx, ch, population.chains)
+		population.mutex.RUnlock()
 		weights := make([]ChainWeight, 0)
 
 		defer func() {
@@ -246,6 +250,7 @@ func (population *Population) mutate(ctx context.Context, mutationRate float64) 
 
 		ch := make(chan Chain)
 		wg := &sync.WaitGroup{}
+		population.mutex.RLock()
 		wg.Add(len(population.chains))
 
 		for _, chain := range population.chains {
@@ -264,6 +269,7 @@ func (population *Population) mutate(ctx context.Context, mutationRate float64) 
 				}
 			}()
 		}
+		population.mutex.RUnlock()
 
 		go func() {
 			wg.Wait()
