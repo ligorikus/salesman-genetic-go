@@ -68,29 +68,36 @@ func (population *Population) evolution(ctx context.Context, config *EvolutionCo
 			}
 		}()
 
-		population.mutex.RLock()
-		copyPopulation := population
-		population.mutex.RUnlock()
-
 		select {
 		case <-ch:
-			chainWeights, ok := <-copyPopulation.calculateChainWeights(ctx)
+			population.mutex.RLock()
+			chainWeights, ok := <-population.calculateChainWeights(ctx)
 			if !ok {
 				break
 			}
-			sortedWeights := copyPopulation.sortWeights(chainWeights)
+			sortedWeights := population.sortWeights(chainWeights)
+			if len(sortedWeights) == 0 {
+				break
+			}
 			best := sortedWeights[0]
 			fmt.Println("iteration: ", i, " Best distance - ", best.weight)
+			population.mutex.RUnlock()
 		case <-ctx.Done():
+			population.mutex.RLock()
 			doneCtx := context.Background()
-			chainWeights, ok := <-copyPopulation.calculateChainWeights(doneCtx)
+			chainWeights, ok := <-population.calculateChainWeights(doneCtx)
 			if !ok {
 				break
 			}
-			sortedWeights := copyPopulation.sortWeights(chainWeights)
+			sortedWeights := population.sortWeights(chainWeights)
+			if len(sortedWeights) == 0 {
+				fmt.Println("race")
+				return
+			}
 			best := sortedWeights[0]
 
-			fmt.Println("Finally: Best distance - ", best.weight, "; Chain -", copyPopulation.chains[best.index])
+			fmt.Println("Finally: Best distance - ", best.weight, "; Chain -", population.chains[best.index])
+			population.mutex.RUnlock()
 			return
 		}
 		i++
@@ -192,8 +199,10 @@ func (population *Population) calculateChainWeights(ctx context.Context) <-chan 
 
 		ch := make(chan ChainWeight)
 		population.mutex.RLock()
-		go population.countChainsWeight(ctx, ch, population.chains)
+		chains := population.chains
 		population.mutex.RUnlock()
+
+		go population.countChainsWeight(ctx, ch, chains)
 		weights := make([]ChainWeight, 0)
 
 		defer func() {
