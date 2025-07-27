@@ -68,23 +68,27 @@ func (population *Population) evolution(ctx context.Context, config *EvolutionCo
 			}
 		}()
 
+		copyPopulation := population
+
 		select {
 		case <-ch:
-			chainWeights, ok := <-population.calculateChainWeights(ctx)
+			chainWeights, ok := <-copyPopulation.calculateChainWeights(ctx)
 			if !ok {
 				break
 			}
-			population.mutex.RLock()
-			sortedWeights := population.sortWeights(chainWeights)
-			population.mutex.RUnlock()
+			sortedWeights := copyPopulation.sortWeights(chainWeights)
 			best := sortedWeights[0]
 			fmt.Println("iteration: ", i, " Best distance - ", best.weight)
 		case <-ctx.Done():
 			doneCtx := context.Background()
-			population.mutex.RLock()
-			best := population.sortWeights(<-population.calculateChainWeights(doneCtx))[0]
-			fmt.Println("Finally: Best distance - ", best.weight, "; Chain -", population.chains[best.index])
-			population.mutex.RUnlock()
+			chainWeights, ok := <-copyPopulation.calculateChainWeights(doneCtx)
+			if !ok {
+				break
+			}
+			sortedWeights := copyPopulation.sortWeights(chainWeights)
+			best := sortedWeights[0]
+
+			fmt.Println("Finally: Best distance - ", best.weight, "; Chain -", copyPopulation.chains[best.index])
 			return
 		}
 		i++
