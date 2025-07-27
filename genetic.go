@@ -68,7 +68,9 @@ func (population *Population) evolution(ctx context.Context, config *EvolutionCo
 			}
 		}()
 
+		population.mutex.RLock()
 		copyPopulation := population
+		population.mutex.RUnlock()
 
 		select {
 		case <-ch:
