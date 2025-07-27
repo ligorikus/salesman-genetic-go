@@ -9,7 +9,7 @@ import (
 )
 
 type Population struct {
-	mutex  sync.Mutex
+	mutex  *sync.Mutex
 	graph  Graph
 	chains map[int]Chain
 }
@@ -27,6 +27,7 @@ type ChainWeight struct {
 func NewPopulation(graph Graph, countOfChains int) Population {
 	var population Population
 	population.graph = graph
+	population.mutex = &sync.Mutex{}
 
 	population.chains = make(map[int]Chain)
 	for index := range countOfChains {
