@@ -2,22 +2,25 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
 const MaxDistance = 99
+const WorkSeconds = 1
+const CountOfCities = 10
+const CountOfChains = 10
+const Survivors = 5
+const MutationRate = 0.5
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), WorkSeconds*time.Second)
 	defer cancel()
 
-	graph := NewGraph(100, MaxDistance)
-	population := NewPopulation(graph, 10)
-	fmt.Println(population.chains[0])
+	graph := NewGraph(CountOfCities, MaxDistance)
+	population := NewPopulation(graph, CountOfChains)
 	evConfig := &EvolutionConfig{
-		survivorRate: 5,
-		mutationRate: 0.1,
+		survivorRate: Survivors,
+		mutationRate: MutationRate,
 	}
 	population.evolution(ctx, evConfig)
 }

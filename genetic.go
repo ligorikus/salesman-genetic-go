@@ -44,7 +44,7 @@ func (population *Population) evolution(ctx context.Context, config *EvolutionCo
 			defer close(ch)
 
 			mutateCh := population.mutate(ctx, config.mutationRate)
-			survivorsCh := population.filterChainsByRate(population.calculateChainWeights(ctx), config.survivorRate)
+			survivorsCh := population.filterChainsByRate(ctx, population.calculateChainWeights(ctx), config.survivorRate)
 			survivors := <-survivorsCh
 			crossbreedingCh := population.crossbreed(ctx, survivors)
 
@@ -60,15 +60,28 @@ func (population *Population) evolution(ctx context.Context, config *EvolutionCo
 			population.mutex.Lock()
 			population.chains = newPopulationChainsMap
 			population.mutex.Unlock()
+
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 		}()
 
 		select {
 		case <-ch:
-			best := population.sortWeights(<-population.calculateChainWeights(ctx))[0]
+			chainWeights, ok := <-population.calculateChainWeights(ctx)
+			if !ok {
+				break
+			}
+			sortedWeights := population.sortWeights(chainWeights)
+			best := sortedWeights[0]
 			fmt.Println("iteration: ", i, " Best distance - ", best.weight)
 		case <-ctx.Done():
 			doneCtx := context.Background()
+			population.mutex.Lock()
 			best := population.sortWeights(<-population.calculateChainWeights(doneCtx))[0]
+			population.mutex.Unlock()
 			fmt.Println("Finally: Best distance - ", best.weight, "; Chain -", population.chains[best.index])
 			return
 		}
@@ -87,7 +100,10 @@ func (population *Population) crossbreed(ctx context.Context, chains []Chain) <-
 
 		resultCrossbreeding := make([]Chain, 0)
 		defer func() {
-			outputCh <- resultCrossbreeding
+			select {
+			case outputCh <- resultCrossbreeding:
+			case <-ctx.Done():
+			}
 		}()
 		for _, chain := range chains {
 			chain := chain
@@ -124,7 +140,7 @@ func (population *Population) crossbreed(ctx context.Context, chains []Chain) <-
 	return outputCh
 }
 
-func (population *Population) filterChainsByRate(inputCh <-chan []ChainWeight, survivorRate int) <-chan []Chain {
+func (population *Population) filterChainsByRate(ctx context.Context, inputCh <-chan []ChainWeight, survivorRate int) <-chan []Chain {
 	outputCh := make(chan []Chain)
 	go func() {
 		defer close(outputCh)
@@ -132,16 +148,24 @@ func (population *Population) filterChainsByRate(inputCh <-chan []ChainWeight, s
 
 		survivors := make([]Chain, 0)
 		if len(weights) == 0 {
-			outputCh <- survivors
+			select {
+			case outputCh <- survivors:
+			case <-ctx.Done():
+			}
 			return
 		}
 
 		weights = population.sortWeights(weights)
 
-		for i := range survivorRate {
+		for i := range min(survivorRate, len(weights)) {
 			survivors = append(survivors, population.chains[weights[i].index])
 		}
-		outputCh <- survivors
+
+		select {
+		case outputCh <- survivors:
+		case <-ctx.Done():
+			return
+		}
 	}()
 	return outputCh
 }
